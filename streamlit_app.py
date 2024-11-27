@@ -1,50 +1,85 @@
 import streamlit as st
+import re
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
-# Cargar el modelo y el tokenizador
-model_name = "gpt2"  # Puedes cambiar a otro modelo como "meta-llama/Llama-3.2-1B"
+# Cargar el modelo y el tokenizador de GPT-2
+model_name = "gpt2"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name)
 
 # Asegurarse de que el modelo está en modo de evaluación
 model.eval()
 
-# Base de datos simple de preguntas frecuentes (FAQ)
+# Base de datos de FAQ con variaciones
+faq_variations = {
+    "título profesional": [
+        "título profesional", 
+        "solicitar título", 
+        "cómo obtener el título", 
+        "tramitar título profesional", 
+        "dame información sobre mi título", 
+        "requisitos para título"
+    ],
+    "certificado de egresado": [
+        "certificado de egresado", 
+        "cómo obtener certificado de egresado", 
+        "solicitar certificado", 
+        "requisitos para certificado"
+    ],
+    "constancia de estudios": [
+        "constancia de estudios", 
+        "cómo obtener constancia de estudios", 
+        "solicitar constancia", 
+        "requisitos para constancia"
+    ],
+    "requisitos para graduarse": [
+        "requisitos para graduarse", 
+        "cómo graduarse", 
+        "cuáles son los requisitos para graduarme", 
+        "qué necesito para graduarme"
+    ],
+    "certificado de notas": [
+        "certificado de notas", 
+        "cómo obtener certificado de notas", 
+        "solicitar certificado de notas", 
+        "requisitos para certificado de notas"
+    ],
+    "documentos para graduación": [
+        "documentos para graduación", 
+        "qué documentos necesito para graduarme", 
+        "requisitos documentales para graduarse"
+    ]
+}
+
+# Base de datos de respuestas
 faq_db = {
-    "certificado de egresado": "Para solicitar tu certificado de egresado, debes llenar el formulario en la página web de la Oficina de Egresados y esperar 3 días hábiles para su entrega.",
     "título profesional": "El trámite para obtener tu título profesional se inicia en la Oficina de Egresados. Debes haber aprobado todos los cursos y presentar tu solicitud a través del sistema de la universidad.",
+    "certificado de egresado": "Para solicitar tu certificado de egresado, debes llenar el formulario en la página web de la Oficina de Egresados y esperar 3 días hábiles para su entrega.",
     "constancia de estudios": "Puedes obtener una constancia de estudios solicitándola a través de tu cuenta en el portal de la universidad o en la Oficina de Egresados.",
     "requisitos para graduarse": "Para graduarte, debes haber cumplido con todos los requisitos académicos establecidos en el reglamento de la universidad. Consulta el portal de graduados para más detalles.",
     "certificado de notas": "Para obtener un certificado de notas, debes presentar una solicitud en línea a través del portal de egresados de la UNFV.",
     "documentos para graduación": "Los documentos necesarios para graduarte incluyen tu expediente académico, tu constancia de egresado, y tu solicitud de título, los cuales debes entregar en la Oficina de Egresados."
 }
 
-# Función para generar respuesta
-def get_chatbot_response(user_input, history=None):
-    if history is None:
-        history = []
+# Función de preprocesamiento para normalizar la entrada del usuario
+def preprocess_input(user_input):
+    user_input = user_input.lower()  # Convertir todo a minúsculas
+    user_input = re.sub(r'\bdame\b|\bcomo\b|\bpara\b|\bsolicitar\b|\bquiero\b|\binformacion\b', '', user_input)  # Eliminar palabras innecesarias
+    return user_input.strip()
 
-    # Convertir la entrada del usuario a minúsculas para comparación
-    user_input = user_input.lower()
-
-    # Verificar si la entrada coincide con alguna de las preguntas frecuentes
-    response = faq_db.get(user_input, None)
-
-    if response is None:
-        # Si no se encuentra en las preguntas frecuentes, usar el modelo general
-        inputs = tokenizer.encode(user_input + tokenizer.eos_token, return_tensors='pt')
-        history.append(inputs)
-
-        with torch.no_grad():
-            output = model.generate(torch.cat(history, dim=-1), max_length=300, pad_token_id=tokenizer.eos_token_id, num_return_sequences=1)
-
-        response = tokenizer.decode(output[0], skip_special_tokens=True)
-
-    # Agregar un toque educativo y estructurado a la respuesta
-    response = f"**¡Aquí tienes la información que necesitas!**\n\n{response}\n\nSi tienes más dudas, ¡no dudes en preguntar!"
-
-    return response, history
+# Función para obtener la respuesta del chatbot
+def get_chatbot_response(user_input):
+    user_input = preprocess_input(user_input)
+    
+    # Verificar si alguna de las variaciones de las claves del FAQ está en la entrada del usuario
+    for key, variations in faq_variations.items():
+        for variation in variations:
+            if variation in user_input:  # Compara la variación con la entrada del usuario
+                return faq_db[key]
+    
+    # Si no se encuentra ninguna coincidencia, generar una respuesta predeterminada
+    return "Lo siento, no pude encontrar una respuesta exacta a tu pregunta. ¿Podrías reformularla?"
 
 # Configuración de la página
 st.set_page_config(page_title="Chatbot Administrativo UNFV", page_icon=":guardsman:", layout="wide")
@@ -86,8 +121,9 @@ with col1:
 
 # Enviar mensaje y generar respuesta
 if send_button and user_input:
-    response, history = get_chatbot_response(user_input, st.session_state.history)
-    st.session_state.history = history  # Guardar el historial en el estado de la sesión
+    response = get_chatbot_response(user_input)  # Obtiene la respuesta basada en las variaciones
+    st.session_state.history.append([user_input])  # Guardar la pregunta del usuario en el historial
+    st.session_state.history.append([response])  # Guardar la respuesta del chatbot en el historial
 
     # Mostrar la respuesta generada
     st.markdown(style_message(response, 'chatbot'), unsafe_allow_html=True)
@@ -105,4 +141,3 @@ st.sidebar.write("Puedes intentar con algunas de estas preguntas frecuentes:")
 st.sidebar.write("- ¿Cómo solicitar mi certificado de egresado?")
 st.sidebar.write("- ¿Cuáles son los requisitos para graduarme?")
 st.sidebar.button("Recargar la conversación", on_click=lambda: st.session_state.history.clear())
-
